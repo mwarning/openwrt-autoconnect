@@ -1,8 +1,7 @@
 #!/bin/sh
 
-# Set these variables
-selected_cfg="radio0"
-selected_dev="wlan0"
+# Interface device section in /etc/config/wireless
+selected_cfg="$1"
 
 #######################################################
 
@@ -10,6 +9,16 @@ selected_dev="wlan0"
 
 scanned_ssid=""
 scanned_channel=""
+
+if [ "$(uci -q get wireless.$selected_cfg)" != "wifi-device" ]; then
+  echo "Interface section not found: $selected_cfg"
+  exit 1
+fi
+
+if ! network_get_device selected_dev "$selected_cfg" ; then
+  echo "Cannot get interface to scan on: $selected_cfg"
+  exit 1
+fi
 
 config_load 'wireless'
 
@@ -20,17 +29,8 @@ is_cfg_disabled() {
   [ $disabled -eq 0 ]
 }
 
-is_dev_present() {
-  [ ! -f /sys/class/net/wlan0/operstate ]
-}
-
 if is_cfg_disabled "$selected_cfg"; then
   echo "WIFI configuration disabled: $selected_cfg"
-  exit 1
-fi
-
-if is_dev_present "$selected_dev"; then
-  echo "WIFI device does not exist: $selected_dev"
   exit 1
 fi
 
