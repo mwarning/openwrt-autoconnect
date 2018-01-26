@@ -25,19 +25,19 @@ is_dev_present() {
 }
 
 if is_cfg_disabled "$selected_cfg"; then
-  echo "wifi configuration disabled: $selected_cfg"
+  echo "WIFI configuration disabled: $selected_cfg"
   exit 1
 fi
 
 if is_dev_present "$selected_dev"; then
-  echo "wifi device does not exist: $selected_dev"
+  echo "WIFI device does not exist: $selected_dev"
   exit 1
 fi
 
 #wifi_status="$(wifi status 2> /dev/null)"
 iw_scan="$(iw dev ${selected_dev} scan 2> /dev/null)"
 if [ $? -ne 0 ]; then
-  echo "wifi scan failed - try again"
+  echo "WIFI scan failed - try again"
   exit 1
 fi
 
@@ -68,8 +68,6 @@ select_wifi() {
   local scanned_channel="$2"
   local changed=0
 
-  #echo "select_wifi, ssid: $scanned_ssid, channel: $scanned_channel"
-
   apply() {
     local cfg="$1"
     local device ssid disabled channel
@@ -81,7 +79,6 @@ select_wifi() {
 
     if [ "$device" = "$selected_cfg" ]; then
       if [ "$ssid" = "$scanned_ssid" ]; then
-        echo "Enable SSID '$scanned_ssid' on channel $scanned_channel"
         if [ $disabled -ne 0 -o $channel -ne $scanned_channel ]; then
           uci set wireless.$cfg.disabled=0
           uci set wireless.$selected_cfg.channel=$scanned_channel
@@ -98,11 +95,12 @@ select_wifi() {
 
   config_foreach apply 'wifi-iface'
 
+  echo "SSID: '$scanned_ssid', channel: $scanned_channel"
   if [ $changed -eq 1 ]; then
-    echo "Configuration changed (SSID: '$scanned_ssid', channel: $scanned_channel) - reload"
+    echo "Configuration changed - reload"
     wifi
   else
-    echo "Configuration unchanged (SSID: '$scanned_ssid', channel: $scanned_channel)"
+    echo "Configuration unchanged"
   fi
 }
 
@@ -127,7 +125,6 @@ parse_scan() {
     esac
 
     if [ -n "$channel" -a -n "$ssid" ]; then
-      echo "test $ssid"
       if listed_ssid "$ssid"; then
         select_wifi "$ssid" "$channel"
         return
