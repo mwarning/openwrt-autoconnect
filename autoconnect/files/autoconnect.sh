@@ -1,24 +1,24 @@
 #!/bin/sh
 
-# Interface device section in /etc/config/wireless
+# Interface device section in /etc/config/wireless, e.g. radio0
 selected_cfg="$1"
 
 #######################################################
 
 . /lib/functions.sh
 
+# Result
 scanned_ssid=""
 scanned_channel=""
 
-if [ "$(uci -q get wireless.$selected_cfg)" != "wifi-device" ]; then
+if [ "$(uci -q get wireless.${selected_cfg})" != "wifi-device" ]; then
   echo "Interface section not found: $selected_cfg"
   exit 1
 fi
 
-if ! network_get_device selected_dev "$selected_cfg" ; then
-  echo "Cannot get interface to scan on: $selected_cfg"
-  exit 1
-fi
+# returns e.g. wlan0
+selected_dev=$(jsonfilter -s "$(wifi status)" -e "@.${selected_cfg}.interfaces[0].ifname")
+
 
 config_load 'wireless'
 
@@ -34,10 +34,8 @@ if is_cfg_disabled "$selected_cfg"; then
   exit 1
 fi
 
-#wifi_status="$(wifi status 2> /dev/null)"
-iw_scan="$(iw dev ${selected_dev} scan 2> /dev/null)"
-if [ $? -ne 0 ]; then
-  echo "WIFI scan failed - try again"
+if [ ! -f /sys/class/net/${selected_dev}/operstate ]; then
+  echo "Device does not exist: $selected_dev"
   exit 1
 fi
 
@@ -47,12 +45,14 @@ listed_ssid() {
 
   check() {
     local cfg="$1"
-    local ssid mode
+    local ssid mode network
 
     config_get ssid $cfg ssid
     config_get mode $cfg mode
+    config_get network $cfg network
 
-    if [ "$mode" = "sta" -a "$search_ssid" = "$ssid" ]; then
+    # wifi-iface section in station mode and matching SSID
+    if [ "$mode" = "sta" -a "$network" = "wan" -a "$search_ssid" = "$ssid" ]; then
       found=1
       return 0
     else
@@ -61,6 +61,7 @@ listed_ssid() {
   }
 
   config_foreach check 'wifi-iface'
+  return $found
 }
 
 select_wifi() {
@@ -75,6 +76,7 @@ select_wifi() {
     config_get device $cfg device
     config_get ssid $cfg ssid
     config_get disabled $cfg disabled
+    config_get fooo #
     config_get channel $selected_cfg channel
 
     if [ "$device" = "$selected_cfg" ]; then
@@ -136,15 +138,12 @@ parse_scan() {
   done
 }
 
-parse_scan "$iw_scan"
+iw_scan="$(iw dev ${selected_dev} scan 2> /dev/null)"
+if [ $? -eq 0 ]; then
+  parse_scan "$iw_scan"
+else
+  echo "WIFI scan failed - abort"
+  exit 1
+fi
 
-scan() {
-  ifconfig wlan0 down
-  iw phy phy0 interface add scan0 type station
-  ifconfig scan0 up
-  iwlist scan0 scan
-  iw dev scan0 del
-  ifconfig wlan0 up
-  killall -HUP hostapd
-}
-
+exit 0
