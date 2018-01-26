@@ -1,3 +1,4 @@
 #!/bin/sh
- 
-echo "*/5 * * * * /lib/autoconnect" >> /etc/crontabs/root
+
+echo "# Connect to an available SSID in /etc/config/wireless"
+echo "*/5 * * * * /bin/autoconnect.sh" >> /etc/crontabs/root

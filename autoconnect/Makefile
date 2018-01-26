@@ -27,7 +27,9 @@ endef
 
 
 define Package/autoconnect/install
-	$(INSTALL_BIN) files/autoconnect.sh $(1)/lib
+	$(INSTALL_DIR) $(1)/bin
+	$(INSTALL_BIN) files/autoconnect.sh $(1)/bin
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) files/autoconnect.postinst $(1)/etc/uci-defaults/90_autoconnect
 endef
 
