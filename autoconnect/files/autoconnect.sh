@@ -20,7 +20,7 @@ wifi_connect() {
 
   for i in 3 3 3 3; do
     sleep $i
-    if wifi status | jsonfilter "@.radio0.interfaces[@.section=\""$cfg"\"].config.ssid"; then
+    if ubus call network.wireless status | jsonfilter "@.radio0.interfaces[@.section=\""$cfg"\"].config.ssid"; then
       return 0
     fi
   done
@@ -93,7 +93,7 @@ list_iface_cfgs() {
 is_connected() {
   local device_cfg="$1"
   local iface_cfg="$2"
-  local ifname=$(wifi status | jsonfilter -e "$."$device_cfg".interfaces[@.section=\"$iface_cfg\"].ifname")
+  local ifname=$(ubus call network.wireless status | jsonfilter -e "$."$device_cfg".interfaces[@.section=\"$iface_cfg\"].ifname")
   ip addr list dev "$ifname" 2> /dev/null | grep -v "inet6 fe80" | grep -q "inet"
 }
 
