@@ -12,15 +12,23 @@ _config_set() {
 
 config_load 'wireless'
 
+is_connected() {
+  local device_cfg="$1"
+  local iface_cfg="$2"
+  local ifname=$(ubus call network.wireless status | jsonfilter -e "$.\"$device_cfg\".interfaces[@.section=\"$iface_cfg\"].ifname")
+  ip addr list dev "$ifname" 2> /dev/null | grep -v "inet6 fe80" | grep -q "inet"
+}
+
 # reload and test current wifi setup
 wifi_connect() {
-  local cfg=$1
+  local device_cfg="$1"
+  local iface_cfg="$2"
 
-  wifi
+  ubus call network reload
 
-  for i in 3 3 3 3; do
+  for i in 2 4 8; do
     sleep $i
-    if ubus call network.wireless status | jsonfilter "@.radio0.interfaces[@.section=\""$cfg"\"].config.ssid"; then
+    if is_connected "$device_cfg" "$iface_cfg"; then
       return 0
     fi
   done
@@ -62,7 +70,7 @@ list_device_cfgs() {
 
     config_get channel $cfg channel
 
-    if [ -z "$channel" -o "$channel" = "auto" ]; then
+    if [ -z "$channel" ]; then
       echo "$cfg"
     fi
   }
@@ -90,18 +98,11 @@ list_iface_cfgs() {
   config_foreach print_cfg 'wifi-iface'
 }
 
-is_connected() {
-  local device_cfg="$1"
-  local iface_cfg="$2"
-  local ifname=$(ubus call network.wireless status | jsonfilter -e "$."$device_cfg".interfaces[@.section=\"$iface_cfg\"].ifname")
-  ip addr list dev "$ifname" 2> /dev/null | grep -v "inet6 fe80" | grep -q "inet"
-}
-
 for device_cfg in $(list_device_cfgs); do
   iface_cfgs=$(list_iface_cfgs "$device_cfg")
 
-  # check for existing connection
   for iface_cfg in $iface_cfgs; do
+    # check for existing connection
     if is_connected "$device_cfg" "$iface_cfg"; then
       echo "already is_connected"
       iface_cfgs=""
@@ -111,8 +112,9 @@ for device_cfg in $(list_device_cfgs); do
 
   for iface_cfg in $iface_cfgs; do
     setup_ifaces "$iface_cfg"
-    if wifi_connect "$iface_cfg"; then
+    if wifi_connect "$device_cfg" "$iface_cfg"; then
       echo "connection established"
+      break
     fi
   done
 done
