@@ -1,4 +1,4 @@
 #!/bin/sh
 
-echo "# Connect to an available SSID in /etc/config/wireless"
-echo "*/5 * * * * /bin/autoconnect.sh 'radio0'" >> /etc/crontabs/root
+echo "# Connect to one of multiple preconfigured SSIDs in /etc/config/wireless" >> /etc/crontabs/root
+echo "*/5 * * * * /lib/wifi/autoconnect.sh" >> /etc/crontabs/root

@@ -1,149 +1,120 @@
 #!/bin/sh
 
-# Interface device section in /etc/config/wireless, e.g. radio0
-selected_cfg="$1"
-
-#######################################################
+# Part of the autoconnect package
 
 . /lib/functions.sh
 
-# Result
-scanned_ssid=""
-scanned_channel=""
-
-if [ "$(uci -q get wireless.${selected_cfg})" != "wifi-device" ]; then
-  echo "Interface section not found: $selected_cfg"
-  exit 1
-fi
-
-# returns e.g. wlan0
-selected_dev=$(jsonfilter -s "$(wifi status)" -e "@.${selected_cfg}.interfaces[0].ifname")
-
+# config_set is buggy, use wrapper
+_config_set() {
+  uci set wireless.$1.$2=$3
+  config_set "$1" "$2" "$3"
+}
 
 config_load 'wireless'
 
-is_cfg_disabled() {
-  local device="$1"
-  local disabled=1
-  uci_get disabled "$device" disabled
-  [ $disabled -eq 0 ]
-}
+# reload and test current wifi setup
+wifi_connect() {
+  local cfg=$1
 
-if is_cfg_disabled "$selected_cfg"; then
-  echo "WIFI configuration disabled: $selected_cfg"
-  exit 1
-fi
+  wifi
 
-if [ ! -f /sys/class/net/${selected_dev}/operstate ]; then
-  echo "Device does not exist: $selected_dev"
-  exit 1
-fi
-
-listed_ssid() {
-  local search_ssid="$1"
-  local found=0
-
-  check() {
-    local cfg="$1"
-    local ssid mode network
-
-    config_get ssid $cfg ssid
-    config_get mode $cfg mode
-    config_get network $cfg network
-
-    # wifi-iface section in station mode and matching SSID
-    if [ "$mode" = "sta" -a "$network" = "wan" -a "$search_ssid" = "$ssid" ]; then
-      found=1
+  for i in 3 3 3 3; do
+    sleep $i
+    if wifi status | jsonfilter "@.radio0.interfaces[@.section=\""$cfg"\"].config.ssid"; then
       return 0
-    else
-      return 1
     fi
-  }
+  done
 
-  config_foreach check 'wifi-iface'
-  return $found
+  return 1
 }
 
-select_wifi() {
-  local scanned_ssid="$1"
-  local scanned_channel="$2"
-  local changed=0
+# Enable a single wifi-iface section
+setup_ifaces() {
+  local select_cfg="$1"
 
-  apply() {
+  setup_iface() {
     local cfg="$1"
-    local device ssid disabled channel
+    local device ssid mode channel
 
     config_get device $cfg device
     config_get ssid $cfg ssid
-    config_get disabled $cfg disabled
-    config_get fooo #
-    config_get channel $selected_cfg channel
+    config_get mode $cfg mode
+    config_get channel $cfg channel
 
-    if [ "$device" = "$selected_cfg" ]; then
-      if [ "$ssid" = "$scanned_ssid" ]; then
-        if [ $disabled -ne 0 -o $channel -ne $scanned_channel ]; then
-          uci set wireless.$cfg.disabled=0
-          uci set wireless.$selected_cfg.channel=$scanned_channel
-          changed=1
-        fi
-      else
-        if [ $disabled -ne 1 ]; then
-          uci set wireless.$cfg.disabled=1
-          changed=1
-        fi
-      fi
+    if [ "$cfg" = "$select_cfg" ]; then
+      _config_set "$cfg" disabled 0
+      # Set device config to required channel
+      _config_set "$device" channel "$channel"
+      config="$cfg"
+    else
+      _config_set "$cfg" disabled 1
     fi
   }
 
-  config_foreach apply 'wifi-iface'
-
-  echo "SSID: '$scanned_ssid', channel: $scanned_channel"
-  if [ $changed -eq 1 ]; then
-    echo "Configuration changed - reload"
-    wifi
-  else
-    echo "Configuration unchanged"
-  fi
+  config_foreach setup_iface 'wifi-iface'
 }
 
-parse_scan() {
-  local iw_scan="$1"
-  local ssid=""
-  local channel=""
+# all wifi-device sections
+list_device_cfgs() {
+  print_cfg() {
+    local cfg="$1"
+    local channel
 
-  echo "$iw_scan" | while read line
-  do
-    case "$line" in
-      "BSS"*)
-        ssid=""
-        channel=""
-        ;;
-      "SSID: "*)
-        ssid="${line:6}"
-        ;;
-      "* primary channel: "*)
-        channel="${line:19}"
-        ;;
-    esac
+    config_get channel $cfg channel
 
-    if [ -n "$channel" -a -n "$ssid" ]; then
-      if listed_ssid "$ssid"; then
-        select_wifi "$ssid" "$channel"
-        return
-      fi
+    if [ -z "$channel" -o "$channel" = "auto" ]; then
+      echo "$cfg"
+    fi
+  }
 
-      ssid=""
-      channel=""
+  config_foreach print_cfg 'wifi-device'
+}
+
+# all wifi-ifaces sections of a wifi-device
+list_iface_cfgs() {
+  local device_cfg="$1"
+
+  print_cfg() {
+    local cfg="$1"
+    local device mode channel
+
+    config_get device $cfg device
+    config_get mode $cfg mode
+    config_get channel $cfg channel
+
+    if [ "$device" = "$device_cfg" -a "$mode" = "sta" -a -n "$channel" ]; then
+      echo "$cfg"
+    fi
+  }
+
+  config_foreach print_cfg 'wifi-iface'
+}
+
+is_connected() {
+  local device_cfg="$1"
+  local iface_cfg="$2"
+  local ifname=$(wifi status | jsonfilter -e "$."$device_cfg".interfaces[@.section=\"$iface_cfg\"].ifname")
+  ip addr list dev "$ifname" 2> /dev/null | grep -v "inet6 fe80" | grep -q "inet"
+}
+
+for device_cfg in $(list_device_cfgs); do
+  iface_cfgs=$(list_iface_cfgs "$device_cfg")
+
+  # check for existing connection
+  for iface_cfg in $iface_cfgs; do
+    if is_connected "$device_cfg" "$iface_cfg"; then
+      echo "already is_connected"
+      iface_cfgs=""
+      break
     fi
   done
-}
 
-iw_scan="$(iw dev ${selected_dev} scan 2> /dev/null)"
-if [ $? -eq 0 ]; then
-  parse_scan "$iw_scan"
-else
-  echo "WIFI scan failed - abort"
-  exit 1
-fi
+  for iface_cfg in $iface_cfgs; do
+    setup_ifaces "$iface_cfg"
+    if wifi_connect "$iface_cfg"; then
+      echo "connection established"
+    fi
+  done
+done
 
 exit 0

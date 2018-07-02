@@ -19,6 +19,7 @@ define Package/autoconnect
 	CATEGORY:=Network
 	TITLE:=SSID Autoconnect
 	MAINTAINER:=Moritz Warning <moritzwarning@web.de>
+	DEPENDS:=+jsonfilter
 endef
 
 define Package/autoconnect/description
@@ -27,8 +28,8 @@ endef
 
 
 define Package/autoconnect/install
-	$(INSTALL_DIR) $(1)/bin
-	$(INSTALL_BIN) files/autoconnect.sh $(1)/bin
+	$(INSTALL_DIR) $(1)/lib/wifi
+	$(INSTALL_BIN) files/autoconnect.sh $(1)/lib/wifi
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
 	$(INSTALL_BIN) files/autoconnect.postinst $(1)/etc/uci-defaults/90_autoconnect
 endef
